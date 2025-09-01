@@ -1,0 +1,881 @@
+openapi: 3.0.3
+info:
+  title: Food Delivery API Gateway
+  version: 1.0.0
+  description: >
+    Central API Gateway for the Food Delivery platform. Orchestrates routing to domain services:
+    User, Hotel & Menu, Order, Payment, Review & Rating, Notification, Location, and Promotion.
+    This spec mirrors the endpoints exposed by services and defines security and response contracts.
+
+servers:
+  - url: https://api.foodly.example.com
+    description: Production
+  - url: https://staging-api.foodly.example.com
+    description: Staging
+  - url: http://localhost:8080
+    description: Local Gateway
+
+tags:
+  - name: Auth
+  - name: Users
+  - name: Hotels
+  - name: Menus
+  - name: Cart
+  - name: Orders
+  - name: Payments
+  - name: Reviews
+  - name: Promotions
+  - name: Notifications
+  - name: Location
+
+security:
+  - bearerAuth: []
+
+paths:
+  /auth/register:
+    post:
+      tags: [Auth]
+      summary: Register a new user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserRegistrationRequest'
+      responses:
+        '201':
+          description: User registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '409':
+          description: Email already exists
+        '400':
+          description: Invalid input
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Authenticate user with email/password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Authenticated
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+              description: Optional session cookie
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthToken'
+        '401':
+          description: Invalid credentials
+
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Refresh access token using refresh token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken:
+                  type: string
+      responses:
+        '200':
+          description: New tokens
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthToken'
+        '401':
+          description: Invalid refresh token
+
+  /users/me:
+    get:
+      tags: [Users]
+      summary: Get current authenticated user profile
+      responses:
+        '200':
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          description: Unauthorized
+    patch:
+      tags: [Users]
+      summary: Update current user profile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserUpdateRequest'
+      responses:
+        '200':
+          description: Updated user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          description: Unauthorized
+
+  /hotels:
+    get:
+      tags: [Hotels]
+      summary: Search and list nearby hotels
+      parameters:
+        - in: query
+          name: q
+          schema: { type: string }
+          description: Search term
+        - in: query
+          name: lat
+          schema: { type: number, format: double }
+        - in: query
+          name: lng
+          schema: { type: number, format: double }
+        - in: query
+          name: radius
+          schema: { type: integer, minimum: 1, default: 5000 }
+          description: Meters
+        - in: query
+          name: cuisine
+          schema: { type: string }
+        - in: query
+          name: ratingMin
+          schema: { type: number, minimum: 0, maximum: 5 }
+        - in: query
+          name: sort
+          schema:
+            type: string
+            enum: [distance, rating, popularity]
+      responses:
+        '200':
+          description: List of hotels
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Hotel' }
+
+  /hotels/{hotelId}:
+    get:
+      tags: [Hotels]
+      summary: Get hotel details by ID
+      parameters:
+        - $ref: '#/components/parameters/HotelId'
+      responses:
+        '200':
+          description: Hotel
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Hotel'
+        '404':
+          description: Not found
+
+  /hotels/{hotelId}/menu:
+    get:
+      tags: [Menus]
+      summary: Get menu for a hotel
+      parameters:
+        - $ref: '#/components/parameters/HotelId'
+      responses:
+        '200':
+          description: Menu items
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/MenuItem' }
+
+  /cart:
+    get:
+      tags: [Cart]
+      summary: Get current cart
+      responses:
+        '200':
+          description: Current cart items
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/CartItem' }
+    post:
+      tags: [Cart]
+      summary: Replace cart with provided items
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items: { $ref: '#/components/schemas/CartItem' }
+      responses:
+        '200':
+          description: Updated cart
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/CartItem' }
+
+  /cart/items:
+    post:
+      tags: [Cart]
+      summary: Add item to cart
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CartItem'
+      responses:
+        '201':
+          description: Added
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CartItem'
+
+  /cart/items/{itemId}:
+    delete:
+      tags: [Cart]
+      summary: Remove item from cart
+      parameters:
+        - in: path
+          name: itemId
+          required: true
+          schema: { type: string }
+      responses:
+        '204':
+          description: Removed
+
+  /orders:
+    post:
+      tags: [Orders]
+      summary: Place a new order from current cart
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrderCreateRequest'
+      responses:
+        '201':
+          description: Order created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+    get:
+      tags: [Orders]
+      summary: List orders for current user
+      parameters:
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [created, confirmed, preparing, picked_up, delivering, delivered, cancelled, refunded]
+      responses:
+        '200':
+          description: Orders
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Order' }
+
+  /orders/{orderId}:
+    get:
+      tags: [Orders]
+      summary: Get order by id
+      parameters:
+        - $ref: '#/components/parameters/OrderId'
+      responses:
+        '200':
+          description: Order
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+        '404':
+          description: Not found
+    patch:
+      tags: [Orders]
+      summary: Update order status (authorized roles)
+      parameters:
+        - $ref: '#/components/parameters/OrderId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  type: string
+                  enum: [cancelled]
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+
+  /payments/intent:
+    post:
+      tags: [Payments]
+      summary: Create a payment intent for an order
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [orderId, method]
+              properties:
+                orderId:
+                  type: string
+                method:
+                  type: string
+                  enum: [card, wallet, upi, cod]
+      responses:
+        '201':
+          description: Payment intent created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentIntent'
+
+  /payments/{paymentId}:
+    get:
+      tags: [Payments]
+      summary: Get payment status
+      parameters:
+        - in: path
+          name: paymentId
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Payment status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentIntent'
+
+  /reviews:
+    post:
+      tags: [Reviews]
+      summary: Submit a review for a hotel or order
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReviewCreateRequest'
+      responses:
+        '201':
+          description: Review created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Review'
+    get:
+      tags: [Reviews]
+      summary: List reviews for a hotel
+      parameters:
+        - in: query
+          name: hotelId
+          required: true
+          schema: { type: string }
+        - in: query
+          name: limit
+          schema: { type: integer, default: 20, minimum: 1, maximum: 100 }
+      responses:
+        '200':
+          description: Reviews
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Review' }
+
+  /promotions/validate:
+    post:
+      tags: [Promotions]
+      summary: Validate a promo code for the current cart/order
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PromotionValidationRequest'
+      responses:
+        '200':
+          description: Promotion validation result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PromotionValidationResult'
+        '404':
+          description: Invalid or expired promotion
+
+  /notifications:
+    post:
+      tags: [Notifications]
+      summary: Send a notification (admin/automation)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NotificationCreateRequest'
+      responses:
+        '202':
+          description: Notification accepted
+
+  /notifications/stream:
+    get:
+      tags: [Notifications]
+      summary: WebSocket endpoint for real-time notifications
+      description: Upgrades to WebSocket. This is a placeholder to document the socket endpoint.
+      responses:
+        '101':
+          description: Switching Protocols (WebSocket)
+
+  /location/updates:
+    post:
+      tags: [Location]
+      summary: Submit a live location update (delivery agent)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LocationUpdate'
+      responses:
+        '202':
+          description: Accepted
+
+  /location/track/{orderId}:
+    get:
+      tags: [Location]
+      summary: Get latest tracking location for an order
+      parameters:
+        - $ref: '#/components/parameters/OrderId'
+      responses:
+        '200':
+          description: Latest location
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LocationSnapshot'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    HotelId:
+      in: path
+      name: hotelId
+      required: true
+      schema: { type: string }
+    OrderId:
+      in: path
+      name: orderId
+      required: true
+      schema: { type: string }
+
+  schemas:
+    # Shared core schemas
+    User:
+      type: object
+      required: [id, email, role, createdAt]
+      properties:
+        id: { type: string }
+        email: { type: string, format: email }
+        name: { type: string }
+        phone: { type: string }
+        role:
+          type: string
+          enum: [customer, admin, partner, courier]
+        addresses:
+          type: array
+          items:
+            $ref: '#/components/schemas/Address'
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    Address:
+      type: object
+      properties:
+        id: { type: string }
+        label: { type: string }
+        line1: { type: string }
+        line2: { type: string }
+        city: { type: string }
+        state: { type: string }
+        postalCode: { type: string }
+        country: { type: string }
+        location:
+          $ref: '#/components/schemas/GeoPoint'
+      required: [line1, city, state, postalCode, country]
+
+    GeoPoint:
+      type: object
+      required: [lat, lng]
+      properties:
+        lat: { type: number, format: double }
+        lng: { type: number, format: double }
+
+    AuthToken:
+      type: object
+      required: [accessToken, refreshToken, expiresIn]
+      properties:
+        accessToken: { type: string }
+        refreshToken: { type: string }
+        tokenType:
+          type: string
+          example: Bearer
+        expiresIn:
+          type: integer
+          description: Seconds until access token expiry
+
+    UserRegistrationRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, minLength: 8 }
+        name: { type: string }
+        phone: { type: string }
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string }
+
+    UserUpdateRequest:
+      type: object
+      properties:
+        name: { type: string }
+        phone: { type: string }
+        addresses:
+          type: array
+          items: { $ref: '#/components/schemas/Address' }
+
+    Hotel:
+      type: object
+      required: [id, name, rating, isOpen, location]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        description: { type: string }
+        cuisines:
+          type: array
+          items: { type: string }
+        rating:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 5
+        ratingCount: { type: integer }
+        priceLevel:
+          type: integer
+          minimum: 1
+          maximum: 4
+        isOpen: { type: boolean }
+        location:
+          $ref: '#/components/schemas/GeoPoint'
+        address:
+          $ref: '#/components/schemas/Address'
+        etaMinutes:
+          type: integer
+          description: Estimated delivery time
+        imageUrl: { type: string, format: uri }
+
+    MenuItem:
+      type: object
+      required: [id, name, price, hotelId]
+      properties:
+        id: { type: string }
+        hotelId: { type: string }
+        name: { type: string }
+        description: { type: string }
+        price:
+          type: number
+          format: float
+          minimum: 0
+        currency:
+          type: string
+          example: USD
+        isVeg: { type: boolean }
+        spicyLevel:
+          type: integer
+          minimum: 0
+          maximum: 3
+        imageUrl: { type: string, format: uri }
+        available: { type: boolean }
+        options:
+          type: array
+          items:
+            $ref: '#/components/schemas/MenuOptionGroup'
+
+    MenuOptionGroup:
+      type: object
+      properties:
+        name: { type: string }
+        min: { type: integer, default: 0 }
+        max: { type: integer, default: 1 }
+        options:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: string }
+              label: { type: string }
+              priceDelta: { type: number, format: float, default: 0 }
+
+    CartItem:
+      type: object
+      required: [menuItemId, quantity]
+      properties:
+        id: { type: string }
+        menuItemId: { type: string }
+        hotelId: { type: string }
+        quantity:
+          type: integer
+          minimum: 1
+        notes: { type: string }
+        selectedOptions:
+          type: array
+          items:
+            type: object
+            properties:
+              optionId: { type: string }
+        unitPrice: { type: number, format: float }
+        totalPrice: { type: number, format: float }
+
+    Order:
+      type: object
+      required: [id, userId, status, items, totals, createdAt]
+      properties:
+        id: { type: string }
+        userId: { type: string }
+        hotelId: { type: string }
+        status:
+          type: string
+          enum: [created, confirmed, preparing, picked_up, delivering, delivered, cancelled, refunded]
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/CartItem' }
+        deliveryAddress:
+          $ref: '#/components/schemas/Address'
+        paymentId: { type: string }
+        totals:
+          $ref: '#/components/schemas/OrderTotals'
+        tracking:
+          $ref: '#/components/schemas/TrackingInfo'
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    OrderTotals:
+      type: object
+      properties:
+        subtotal: { type: number, format: float }
+        discount: { type: number, format: float }
+        deliveryFee: { type: number, format: float }
+        tax: { type: number, format: float }
+        grandTotal: { type: number, format: float }
+        currency: { type: string }
+
+    TrackingInfo:
+      type: object
+      properties:
+        courierId: { type: string }
+        lastUpdate:
+          $ref: '#/components/schemas/LocationSnapshot'
+        etaMinutes: { type: integer }
+
+    OrderCreateRequest:
+      type: object
+      required: [hotelId, items, deliveryAddressId]
+      properties:
+        hotelId: { type: string }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/CartItem' }
+        deliveryAddressId: { type: string }
+        promoCode: { type: string }
+        notes: { type: string }
+
+    PaymentIntent:
+      type: object
+      required: [id, orderId, amount, currency, status]
+      properties:
+        id: { type: string }
+        orderId: { type: string }
+        amount: { type: number, format: float }
+        currency: { type: string }
+        status:
+          type: string
+          enum: [requires_payment_method, requires_confirmation, processing, succeeded, failed, cancelled, refunded]
+        provider:
+          type: string
+          description: Payment gateway identifier
+        clientSecret:
+          type: string
+          description: Client secret for SDK confirmation
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    Review:
+      type: object
+      required: [id, subjectId, subjectType, rating, comment, userId, createdAt]
+      properties:
+        id: { type: string }
+        subjectId: { type: string }
+        subjectType:
+          type: string
+          enum: [hotel, order, courier]
+        rating:
+          type: integer
+          minimum: 1
+          maximum: 5
+        comment: { type: string }
+        userId: { type: string }
+        createdAt: { type: string, format: date-time }
+
+    ReviewCreateRequest:
+      type: object
+      required: [subjectId, subjectType, rating]
+      properties:
+        subjectId: { type: string }
+        subjectType:
+          type: string
+          enum: [hotel, order, courier]
+        rating:
+          type: integer
+          minimum: 1
+          maximum: 5
+        comment: { type: string }
+
+    Promotion:
+      type: object
+      required: [id, code, type, value, active]
+      properties:
+        id: { type: string }
+        code: { type: string }
+        type:
+          type: string
+          enum: [percentage, fixed, free_delivery]
+        value: { type: number, format: float }
+        minOrderValue: { type: number, format: float }
+        maxDiscount: { type: number, format: float }
+        validFrom: { type: string, format: date-time }
+        validTo: { type: string, format: date-time }
+        active: { type: boolean }
+
+    PromotionValidationRequest:
+      type: object
+      required: [code, orderId]
+      properties:
+        code: { type: string }
+        orderId: { type: string }
+
+    PromotionValidationResult:
+      type: object
+      required: [valid, discount, message]
+      properties:
+        valid: { type: boolean }
+        discount: { type: number, format: float }
+        message: { type: string }
+        promotion:
+          $ref: '#/components/schemas/Promotion'
+
+    Notification:
+      type: object
+      required: [id, type, title, createdAt]
+      properties:
+        id: { type: string }
+        userId: { type: string }
+        orderId: { type: string }
+        type:
+          type: string
+          enum: [order_update, promotion, system, review_event]
+        title: { type: string }
+        body: { type: string }
+        data:
+          type: object
+          additionalProperties: true
+        read: { type: boolean, default: false }
+        createdAt: { type: string, format: date-time }
+
+    NotificationCreateRequest:
+      type: object
+      required: [type, title]
+      properties:
+        userId: { type: string }
+        topic: { type: string }
+        orderId: { type: string }
+        type:
+          type: string
+          enum: [order_update, promotion, system, review_event]
+        title: { type: string }
+        body: { type: string }
+        data:
+          type: object
+          additionalProperties: true
+        channels:
+          type: array
+          items:
+            type: string
+            enum: [in_app, email, sms, push]
+
+    LocationUpdate:
+      type: object
+      required: [orderId, courierId, position, timestamp]
+      properties:
+        orderId: { type: string }
+        courierId: { type: string }
+        position:
+          $ref: '#/components/schemas/GeoPoint'
+        bearing: { type: number, format: float }
+        speedMps: { type: number, format: float }
+        timestamp: { type: string, format: date-time }
+
+    LocationSnapshot:
+      type: object
+      required: [position, timestamp]
+      properties:
+        position:
+          $ref: '#/components/schemas/GeoPoint'
+        timestamp: { type: string, format: date-time }
+        etaMinutes: { type: integer }
